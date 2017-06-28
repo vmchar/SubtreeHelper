@@ -1,0 +1,346 @@
+#! /bin/bash
+set -e
+# $1 -project
+# $2 project directory
+#
+# $3 -hook
+# $4 your hook file
+#
+# $5 -plugin
+# $6 plugin name
+#
+# $7 -remote
+# $8 plugin remote repository
+#
+# $9 -install_dir
+# $10 directory inside project directory where plugin will be installed
+#
+# $11 -download_dir
+# $12 directory where plugin project will be pulled
+# Input variables and constants
+
+helpKey="-help"
+helpKeyDouble="--help"
+
+projectKey="-project"
+projectPath=""
+
+hookKey="-hook"
+hookFile=""
+
+pluginKey="-plugin"
+pluginName=""
+
+remoteKey="-remote"
+remoteUrl=""
+
+branchKey="-branch"
+branchName=""
+
+installKey="-install_dir"
+installDir=""
+
+createBranchKey="-localBranch"
+createLocalBranch=""
+
+downloadKey="-download_dir"
+downloadDir=""
+
+subtreeInfo="subtreeInfo.readme"
+
+paramcount=$#
+params=( "$@" )
+
+#######							########
+####		Helper Functions		####
+#######							########
+
+# Exit function
+function error_exit
+{
+	echo "$1" 1>&2
+	exit 1
+}
+
+# You can omit -project key and param if you want to use current directory
+function check_project_directory
+{
+	#path is not empty
+	if [ -n "$projectPath" ]; then
+		if [! -d "$projectPath" ]; then
+			error_exit "project directory not found"
+		fi 	
+	else
+		echo "project directory was not given. Using current directory."
+		projectPath=$(pwd)
+		echo "$projectPath"
+	fi
+}
+
+# Check if remote branch name is given, use master otherwise
+function check_branch
+{
+	if [ -z "$branchName"]; then
+		echo "remote branch name omitted. Using master"
+		branchName="master"
+	fi
+}
+
+# Use git to check that given remote is a real repository
+# and also a given branch name exists
+function check_remote_rep
+{
+	local comand="$(git ls-remote --heads $remoteUrl $branchName | wc -l)"
+	if [ -z "$comand" ]; then
+		error_exit "Bad remote or branch"
+	fi
+}
+
+# Initialize empty repository inside download directory
+function prerare_download_directory
+{
+	if [ ! -d "$downloadDir" ]; then 
+		error_exit "Bad download directory"
+	fi 
+	
+	(git init $downloadDir)
+}
+
+# Check if project's working directory contains .git repository
+function check_git_repository
+{
+	local gitDir="$projectPath/.git"
+	if [ ! -d "$gitDir" ]; then
+		error_exit "Working directory doesn't contain .git"
+	fi
+}
+
+# Check project's plugin directory and
+# create subdirectory
+function check_plugin_directory
+{
+	#install dir is not empty
+	if [ -n "$installDir" ]; then
+		installDir="$installDir$pluginName"
+	else 
+		echo "install directory was not specified. Using current directory"
+		installDir="$(pwd)$pluginName"
+	fi
+	#creating directory for plugin if not exists
+	#if [ ! -d "$installDir" ]; then 
+	#	mkdir "$installDir"
+	#fi
+	#if [ -d "$installDir" ]; then
+	#	echo "install dir ok"
+	#else
+	#	echo "install dir failed"
+	#fi
+	
+	echo "installing to directory: $installDir"
+}
+
+# Change access rights to hookfile and
+# move it tho the .git/hooks
+function prepare_hook
+{
+	if [ -f "$hookFile" ]; then
+		echo "try to chmod"
+		local chmodComand="$(chmod +x $hookFile)"
+		if [ ! -z "$chmodComand" ]; then
+			error_exit "chmod hook file failed with status: $?"
+		fi 
+		#echo "before chmod : $hookFile"
+		#(chmod +x "$hookFile")
+	
+		local hookDir="$downloadDir/.git/hooks/"
+		if [ ! -d "$hookDir" ]; then
+			error_exit "hook directory not found inside .git/"
+		fi 
+		(mv $hookFile "$hookDir")
+	
+	fi
+}
+
+# Add remote to plugin repository,
+# pull needed brunch and
+# create local brach with setup
+function pull_plugin
+{
+	pushd "$downloadDir" 
+	(git remote add origin "$remoteUrl")
+	(git pull origin "$branchName")
+	popd
+}
+
+# Create and checkout local branch
+function setup_local_branch
+{
+	if [[ ( -f "$hookFile" ) || ( -n "$createLocalBranch" ) ]]; then
+		echo "asdasasdasdasdasdasdasdasdsadsdasdsadsadsdsadsadsadasdsa
+		asdasdasdasdsa
+		sadsadsadas
+		"
+		pushd "$downloadDir"
+		(git checkout -b "local_setup")
+		popd
+	fi
+}
+
+# Create a file with update subtree comand
+function create_local_help_file
+{
+	# If there is no hook file and no local branch created
+	# there is no place to commit helpfile, so info is just printed to console
+	if [[ ( -f "$hookFile" ) || ( -n "$createLocalBranch" ) ]]; then
+		pushd "$downloadDir"
+		local updateComand="git subtree pull --prefix $installDir $downloadDir.git local_setup -- squash"
+		echo "$updateComand" > "$subtreeInfo"
+		popd
+	else 
+		echo "Use command git subtree pull --prefix $installDir $downloadDir.git master -- squash to update your subtree"
+	fi
+}
+
+# Commit all the new files and changes
+function commit_local_branch
+{
+	if [[ ( -f "$hookFile" ) || ( -n "$createLocalBranch" ) ]]; then
+		pushd "$downloadDir"
+		(git add *)
+		(git commit -am "initial commit") > /dev/null
+		popd
+	fi
+}
+
+function commit_project_before_subtree
+{
+	(git checkout -b "$pluginName")
+	(git add *)
+	(git commit -am "safe commit before adding subtree") > /dev/null
+}
+
+function add_subtree
+{
+	if [[ ( -f "$hookFile" ) || ( -n "$createLocalBranch" ) ]]; then
+		(git subtree add --prefix "$installDir" "$downloadDir".git local_setup --squash)
+	else
+		(git subtree add --prefix "$installDir" "$downloadDir".git master --squash)
+	fi
+}
+
+#######						########
+####		Script start		####
+#######						########
+
+# Parse the help option
+if [[ ("$1" = "$helpKey") || ("$1" = "$helpKeyDouble") ]]; then
+	echo "Usage:
+		-project $path_to_project - Optional. Your project's directory which must contain .git. Using directory 
+		where this script is placed by default.
+		
+		-hook $hook_file - Optional. Hook file which will be moved to the sub-project's .git. Omitted by default. 
+		
+		-plugin $plugin_name_string - Required. Name of sub-project. Will be used to created a directory where subtree will be hold. 
+		
+		-remote $remote_address - Required. Url of the remote repository, containing sub-project code.
+		 
+		-branch $name_of_the_branch - Optional. Specify the branch name of the -remote which will be cloned. Using master by default. 
+		
+		-install_dir $path_to_directory - Optional. Directory inside your project where subtree will be set up.
+		If specified subtree will be under install_dir/plugin. If omitted project/plugin will be used. 
+		
+		-download_dir $path_to_directory - Required. Directory (may be outside your project) where sub-project repo will be initially cloned.
+		-localBranch - Optional. Can be specified only if no hook file used. If specified a local_setup branch will be created inside plugin local repo. By default (if not specified) no branch is created "
+	exit 0
+fi
+
+# Parse parameters
+for ((i=0; i<=paramcount; i++)); do
+	echo "${params[$i]}"
+	
+	# check for project directory
+	if [ "${params[$i]}" = "$projectKey" ]; then
+		i=`expr $i + 1`
+		projectPath=${params[$i]}
+		echo "directory = $projectPath"
+		if [ -d "$projectPath" ]; then
+			echo "project directory ok"
+		fi
+		continue
+	fi
+	
+	# check for creating local branch at local plugin repo
+	if [ "${params[$i]}" = "$createBranchKey" ]; then
+		createLocalBranch="y"
+		echo "local branch will be created"
+		continue
+	fi
+	
+	# check for hookfile
+	if [ "${params[$i]}" = "$hookKey" ]; then
+		i=`expr $i + 1`
+		hookFile=${params[$i]}
+		if [ -f "$hookFile" ]; then
+			echo "hoohfile ok"
+			createLocalBranch="y"
+		else 
+			error_exit "hookfile not found"
+		fi
+		echo "hookFile = $hookFile"
+		continue
+	fi
+
+	# check plugin name
+	if [ "${params[$i]}" = "$pluginKey" ]; then
+		i=`expr $i + 1`
+		pluginName=${params[$i]}
+		echo "Plugin name is $pluginName"
+		continue
+	fi
+	
+	# check for remote url
+	if [ "${params[$i]}" = "$remoteKey" ]; then
+		i=`expr $i + 1`
+		remoteUrl=${params[$i]}
+		echo "Remote url is $remoteUrl"
+		continue
+	fi 	
+	
+	# check install directory
+	if [ "${params[$i]}" = "$installKey" ]; then
+		i=`expr $i + 1`
+		installDir=${params[$i]}
+		check_plugin_directory
+		continue
+	fi
+	
+	# check branch
+	if [ "${params[$i]}" = "$branchKey" ]; then
+		i=`expr $i + 1`
+		branchName=${params[$i]}
+		continue
+	fi
+	
+	# check plugin download directory
+	if [ "${params[$i]}" = "$downloadKey" ]; then
+		i=`expr $i + 1`
+		downloadDir=${params[$i]}
+		continue
+	fi 
+done
+
+# Preparations
+check_project_directory
+check_git_repository
+check_branch
+check_remote_rep
+# Setting up plugin environment
+prerare_download_directory
+prepare_hook
+pull_plugin
+setup_local_branch
+# Setup subtree
+create_local_help_file
+commit_local_branch
+commit_project_before_subtree
+add_subtree

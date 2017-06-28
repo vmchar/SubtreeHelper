@@ -1,0 +1,26 @@
+#! /bin/bash
+
+pushd "$(pwd)"
+
+for f in ./* ; do 
+	echo "$f"
+	if [ -d $f ]; then
+		if [ "$f" = ./UnityProject ]; then
+			continue
+		else
+			rm -rf $f
+			continue
+		fi
+	fi
+	
+	if [ -f $f ]; then
+		rm -rf $f
+	fi
+done
+
+if [ -d ./UnityProject ]; then
+	cp -rf ./UnityProject/Assets/Plugins/Zenject/ .
+	rm -rf ./UnityProject
+fi 
+
+popd

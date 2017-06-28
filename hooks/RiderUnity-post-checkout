@@ -1,0 +1,22 @@
+#! /bin/bash
+
+pushd "$(pwd)../../"
+
+if [ -d ./Assets ]; then
+
+	if [! -f RiderAssetPostprocessor.cs]; then 
+		cp ./Assets/Plugins/Editor/JetBrains/RiderAssetPostprocessor.cs .
+	fi
+	if [! -f RiderPlugin.cs]; then
+		cp ./Assets/Plugins/Editor/JetBrains/RiderPlugin.cs .
+	fi
+	rm -rf Assets
+fi
+
+for filename in ./*; do
+	if [![ "{*.cs}" = $filename ]]; then
+		rm filename
+	fi
+done 
+
+popd
